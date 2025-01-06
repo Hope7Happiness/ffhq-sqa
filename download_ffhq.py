@@ -81,6 +81,7 @@ def download_file(session, file_spec, stats, chunk_size=128, num_attempts=10, **
 
             # Validate.
             if 'file_size' in file_spec and data_size != file_spec['file_size']:
+                print(f"Expected file size: {file_spec['file_size']}, but got: {data_size}")
                 raise IOError('Incorrect file size', file_path)
             if 'file_md5' in file_spec and data_md5.hexdigest() != file_spec['file_md5']:
                 raise IOError('Incorrect file MD5', file_path)
@@ -103,11 +104,13 @@ def download_file(session, file_spec, stats, chunk_size=128, num_attempts=10, **
                 data_str = data.decode('utf-8')
 
                 # Google Drive virus checker nag.
-                links = [html.unescape(link) for link in data_str.split('"') if 'export=download' in link]
-                if len(links) == 1:
-                    if attempts_left:
-                        file_url = requests.compat.urljoin(file_url, links[0])
-                        continue
+                if 'Google Drive - Virus scan warning' in data_str:
+                    print("Google Drive virus scan warning detected, attempting to bypass...")
+                    links = [html.unescape(link) for link in data_str.split('"') if 'export=download' in link]
+                    if len(links) == 1:
+                        if attempts_left:
+                            file_url = requests.compat.urljoin(file_url, links[0])
+                            continue
 
                 # Google Drive quota exceeded.
                 if 'Google Drive - Quota exceeded' in data_str:
