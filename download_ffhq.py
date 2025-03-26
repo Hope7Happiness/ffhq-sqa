@@ -27,6 +27,8 @@ import argparse
 import itertools
 import shutil
 from collections import OrderedDict, defaultdict
+from zhh_down import download as zhh_download
+import re
 
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True # avoid "Decompressed Data Too Large" error
 
@@ -69,15 +71,23 @@ def download_file(session, file_spec, stats, chunk_size=128, num_attempts=10, **
         try:
             # Download.
             data_md5 = hashlib.md5()
-            with session.get(file_url, stream=True) as res:
-                res.raise_for_status()
-                with open(tmp_path, 'wb') as f:
-                    for chunk in res.iter_content(chunk_size=chunk_size<<10):
-                        f.write(chunk)
-                        data_size += len(chunk)
-                        data_md5.update(chunk)
-                        with stats['lock']:
-                            stats['bytes_done'] += len(chunk)
+            # print('file url:',file_url)
+            # with session.get(file_url, stream=True) as res:
+            #     res.raise_for_status()
+            #     with open(tmp_path, 'wb') as f:
+            #         for chunk in res.iter_content(chunk_size=chunk_size<<10):
+            #             f.write(chunk)
+            #             data_size += len(chunk)
+            #             data_md5.update(chunk)
+            #             with stats['lock']:
+            #                 stats['bytes_done'] += len(chunk)
+            
+            # extract: https://drive.google.com/uc?id=1bnmmu4Lonb2MmGReWojzSd2UuCgzsP9h -> 1bnmmu4Lonb2MmGReWojzSd2UuCgzsP9h
+            file_id = re.search(r'(?<=id=)[\w-]+', file_url).group(0)
+            # print('file id:',file_id)
+            data_size, data_md5 = zhh_download(file_id, tmp_path, chunk_size)
+            with stats['lock']:
+                stats['bytes_done'] += data_size
 
             # Validate.
             if 'file_size' in file_spec and data_size != file_spec['file_size']:
@@ -158,8 +168,16 @@ def format_time(seconds):
 def download_files(file_specs, num_threads=32, status_delay=0.2, timing_window=50, **download_kwargs):
 
     # Determine which files to download.
-    done_specs = {spec['file_path']: spec for spec in file_specs if os.path.isfile(spec['file_path'])}
-    missing_specs = [spec for spec in file_specs if spec['file_path'] not in done_specs]
+    if any(spec['file_path']=='LICENSE.txt' for spec in file_specs):
+        done_specs = {spec['file_path']: spec for spec in file_specs if os.path.isfile(spec['file_path'])}
+        missing_specs = [spec for spec in file_specs if spec['file_path'] not in done_specs]
+    else:
+        from missing import missing as M
+        print([spec['file_path'] for spec in file_specs][:10])
+        done_specs = {spec['file_path']: spec for spec in file_specs if spec['file_path'] not in M}
+        missing_specs = [spec for spec in file_specs if spec['file_path'] in M]
+        assert len(missing_specs) == len(M), f"missing_specs: {len(missing_specs)}, M: {len(M)}"
+    # print('missing specs:',missing_specs[:10])
     files_total = len(file_specs)
     bytes_total = sum(spec['file_size'] for spec in file_specs)
     stats = dict(files_done=len(done_specs), bytes_done=sum(spec['file_size'] for spec in done_specs.values()), lock=threading.Lock())
